@@ -2,9 +2,7 @@
 class_name StatementBlock
 extends Block
 
-@export var block_format: String = ""
-@export var statement: String = ""
-@export var defaults: Dictionary = {}
+@export var block_resource: BlockResource
 
 @onready var _background := %Background
 @onready var _hbox := %HBoxContainer
@@ -53,7 +51,7 @@ static func get_scene_path():
 
 # Override this method to create custom block functionality
 func get_instruction_node() -> InstructionTree.TreeNode:
-	var formatted_statement := statement
+	var formatted_statement := block_resource.statement
 
 	for pair in param_name_input_pairs:
 		formatted_statement = formatted_statement.replace("{%s}" % pair[0], pair[1].get_string())
@@ -78,7 +76,7 @@ func get_instruction_node() -> InstructionTree.TreeNode:
 
 
 func format():
-	param_name_input_pairs = format_string(self, %HBoxContainer, block_format, defaults)
+	param_name_input_pairs = format_string(self, %HBoxContainer, block_resource.block_format, block_resource.defaults)
 
 
 static func format_string(parent_block: Block, attach_to: Node, string: String, _defaults: Dictionary) -> Array:

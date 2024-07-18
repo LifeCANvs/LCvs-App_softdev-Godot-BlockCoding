@@ -8,6 +8,7 @@ extends StatementBlock
 
 func _ready():
 	block_type = Types.BlockType.ENTRY
+	bottom_snap = null
 	super()
 
 
@@ -20,7 +21,7 @@ static func get_scene_path():
 
 
 func get_entry_statement() -> String:
-	var formatted_statement := statement
+	var formatted_statement := block_resource.statement
 
 	for pair in param_name_input_pairs:
 		formatted_statement = formatted_statement.replace("{%s}" % pair[0], pair[1].get_string())

@@ -31,6 +31,7 @@ const ZOOM_FACTOR: float = 1.1
 @onready var _zoom_label: Label = %ZoomLabel
 
 var _current_bsd: BlockScriptData
+var _current_ast_list: ASTList
 var _block_scenes_by_class = {}
 var _panning := false
 var zoom: float:
@@ -140,8 +141,39 @@ func bsd_selected(bsd: BlockScriptData):
 
 
 func _load_bsd(bsd: BlockScriptData):
-	for tree in bsd.block_trees.array:
-		load_tree(_window, tree)
+	_current_ast_list = ASTList.new()
+
+	for name_tree in bsd.block_name_trees:
+		var ast: BlockAST = ast_from_name_tree(name_tree)
+		_current_ast_list.append(ast, name_tree.canvas_position)
+
+	reload_ui_from_ast_list()
+
+
+func reload_ui_from_ast_list():
+	for ast_pair in _current_ast_list.array:
+		var root_block = ui_tree_from_ast_node(ast_pair.ast.root)
+		root_block.position = ast_pair.canvas_position
+		_window.add_child(root_block)
+
+
+func ui_tree_from_ast_node(ast_node: BlockAST.ASTNode) -> Block:
+	var block: Block = CategoryFactory.construct_block_from_resource(ast_node.data)
+
+	var current_block: Block = block
+
+	var i: int = 0
+	for c in ast_node.children:
+		var child_block: Block = ui_tree_from_ast_node(c)
+
+		if i == 0:
+			current_block.child_snap.add_child(child_block)
+		else:
+			current_block.bottom_snap.add_child(child_block)
+
+		current_block = child_block
+
+	return block
 
 
 func scene_has_bsd_nodes() -> bool:
@@ -157,43 +189,60 @@ func clear_canvas():
 		child.queue_free()
 
 
-func load_tree(parent: Node, node: SerializedBlockTreeNode):
-	var _block_scene_path = _block_scenes_by_class[node.serialized_block.block_class]
-	var scene: Block = load(_block_scene_path).instantiate()
-	for prop_pair in node.serialized_block.serialized_props:
-		scene.set(prop_pair[0], prop_pair[1])
-	parent.add_child(scene)
-
-	var scene_block: Block = scene as Block
-	reconnect_block.emit(scene_block)
-
-	for c in node.path_child_pairs:
-		load_tree(scene.get_node(c[0]), c[1])
+func ast_from_name_tree(tree: BlockNameTree) -> BlockAST:
+	var ast: BlockAST = BlockAST.new()
+	ast.root = ast_from_name_tree_recursive(tree.root)
+	return ast
 
 
-func rebuild_block_trees(undo_redo):
-	var block_trees_array = []
+func ast_from_name_tree_recursive(node: BlockNameTreeNode):
+	var ast_node := BlockAST.ASTNode.new()
+	var block_resource: BlockResource = CategoryFactory.get_block_resource_from_name(node.block_name)
+	ast_node.data = block_resource
+
+	var children: Array[BlockAST.ASTNode] = []
+
+	for c in node.children:
+		children.append(ast_from_name_tree_recursive(c))
+
+	ast_node.children = children
+
+	return ast_node
+
+
+func rebuild_ast_list():
+	var _current_ast_list = []
 	for c in _window.get_children():
-		block_trees_array.append(build_tree(c, undo_redo))
-	undo_redo.add_undo_property(_current_bsd.block_trees, "array", _current_bsd.block_trees.array)
-	undo_redo.add_do_property(_current_bsd.block_trees, "array", block_trees_array)
+		var root: BlockAST.ASTNode = build_tree(c)
+		var ast: BlockAST = BlockAST.new()
+		ast.root = root
+		_current_ast_list.append(ast)
+
+	print(_current_ast_list[0])
 
 
-func build_tree(block: Block, undo_redo: EditorUndoRedoManager) -> SerializedBlockTreeNode:
-	var path_child_pairs = []
-	block.update_resources(undo_redo)
+func build_tree(block: Block) -> BlockAST.ASTNode:
+	var ast_node := BlockAST.ASTNode.new()
+	ast_node.data = block.block_resource
 
-	for snap in find_snaps(block):
-		var snapped_block = snap.get_snapped_block()
-		if snapped_block == null:
-			continue
-		path_child_pairs.append([block.get_path_to(snap), build_tree(snapped_block, undo_redo)])
+	var children: Array[BlockAST.ASTNode] = []
 
-	if block.resource.path_child_pairs != path_child_pairs:
-		undo_redo.add_undo_property(block.resource, "path_child_pairs", block.resource.path_child_pairs)
-		undo_redo.add_do_property(block.resource, "path_child_pairs", path_child_pairs)
+	if block.child_snap:
+		var child: Block = block.child_snap.get_snapped_block()
 
-	return block.resource
+		while child != null:
+			var child_ast_node := build_tree(child)
+			child_ast_node.data = child.block_resource
+
+			children.append(child_ast_node)
+			if child.bottom_snap == null:
+				child = null
+			else:
+				child = child.bottom_snap.get_snapped_block()
+
+	ast_node.children = children
+
+	return ast_node
 
 
 func find_snaps(node: Node) -> Array[SnapPoint]:
@@ -316,6 +365,14 @@ func set_mouse_override(override: bool):
 		_mouse_override.mouse_default_cursor_shape = Control.CURSOR_ARROW
 
 
-func generate_script_from_current_window(bsd: BlockScriptData) -> String:
-	# TODO: implement multiple windows
-	return InstructionTree.generate_script_from_nodes(_window.get_children(), bsd)
+func generate_script_from_current_window() -> String:
+	var entry_asts: Array[BlockAST] = _current_ast_list.get_top_level_nodes_of_type(Types.BlockType.ENTRY)
+
+	var script := ""
+
+	for entry_ast in entry_asts:
+		script += entry_ast.get_code()
+
+	return script
+
+	#return InstructionTree.generate_script_from_nodes(_window.get_children(), bsd)

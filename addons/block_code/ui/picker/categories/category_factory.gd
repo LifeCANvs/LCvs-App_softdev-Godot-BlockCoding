@@ -124,6 +124,27 @@ const BUILTIN_PROPS: Dictionary = {
 	},
 }
 
+static var block_resource_dictionary: Dictionary
+
+
+static func init_block_resource_dictionary():
+	block_resource_dictionary = {}
+
+	var path: String = "res://addons/block_code/blocks/"
+	var dir := DirAccess.open(path)
+
+	if dir:
+		dir.list_dir_begin()
+		var file_name = dir.get_next()
+
+		while file_name != "":
+			if not dir.current_is_dir():
+				var block_name: String = file_name.trim_suffix(".tres")
+				var block_resource = load(path + file_name)
+				block_resource_dictionary[block_name] = block_resource
+
+			file_name = dir.get_next()
+
 
 ## Compare block categories for sorting. Compare by order then name.
 static func _category_cmp(a: BlockCategory, b: BlockCategory) -> bool:
@@ -140,15 +161,16 @@ static func get_categories(blocks: Array[Block], extra_categories: Array[BlockCa
 		extra_cat_map[cat.name] = cat
 
 	for block in blocks:
-		var cat: BlockCategory = cat_map.get(block.category)
+		var block_cat_name: String = block.block_resource.category
+		var cat: BlockCategory = cat_map.get(block_cat_name)
 		if cat == null:
-			cat = extra_cat_map.get(block.category)
+			cat = extra_cat_map.get(block_cat_name)
 			if cat == null:
-				var props: Dictionary = BUILTIN_PROPS.get(block.category, {})
+				var props: Dictionary = BUILTIN_PROPS.get(block_cat_name, {})
 				var color: Color = props.get("color", Color.SLATE_GRAY)
 				var order: int = props.get("order", 0)
-				cat = BlockCategory.new(block.category, color, order)
-			cat_map[block.category] = cat
+				cat = BlockCategory.new(block_cat_name, color, order)
+			cat_map[block_cat_name] = cat
 		cat.block_list.append(block)
 
 	# Dictionary.values() returns an untyped Array and there's no way to
@@ -162,361 +184,48 @@ static func get_categories(blocks: Array[Block], extra_categories: Array[BlockCa
 	return cats
 
 
+static func get_block_resource_from_name(block_name: String) -> BlockResource:
+	if not block_name in block_resource_dictionary:
+		push_error("Cannot construct unknown block name.")
+		return null
+
+	return block_resource_dictionary[block_name]
+
+
+static func construct_block_from_name(block_name: String):
+	var block_resource: BlockResource = get_block_resource_from_name(block_name)
+	return construct_block_from_resource(block_resource)
+
+
+# Essentially: Create UI from block resource.
+# Using current API but we can make a cleaner one
+static func construct_block_from_resource(block_resource: BlockResource):
+	if block_resource == null:
+		push_error("Cannot construct block from null block resource.")
+		return null
+
+	if block_resource.block_type == Types.BlockType.EXECUTE:
+		var b = BLOCKS["statement_block"].instantiate()
+		b.block_resource = block_resource
+		b.color = BUILTIN_PROPS[block_resource.category].color
+		return b
+	elif block_resource.block_type == Types.BlockType.ENTRY:
+		var b = BLOCKS["entry_block"].instantiate()
+		b.block_resource = block_resource
+		b.color = BUILTIN_PROPS[block_resource.category].color
+		return b
+	else:
+		push_error("Other block types not implemented yet.")
+		return null
+
+
 static func get_general_blocks() -> Array[Block]:
 	var b: Block
 	var block_list: Array[Block] = []
 
-#region Lifecycle
-
-	b = BLOCKS["entry_block"].instantiate()
-	b.block_name = "ready_block"
-	b.block_format = "On Ready"
-	b.statement = "func _ready():"
-	b.tooltip_text = 'The following will be executed when the node is "ready"'
-	b.category = "Lifecycle"
-	block_list.append(b)
-
-	b = BLOCKS["entry_block"].instantiate()
-	b.block_name = "process_block"
-	b.block_format = "On Process"
-	b.statement = "func _process(delta):"
-	b.tooltip_text = "The following will be executed during the processing step of the main loop"
-	b.category = "Lifecycle"
-	block_list.append(b)
-
-	b = BLOCKS["entry_block"].instantiate()
-	b.block_name = "physics_process_block"
-	b.block_format = "On Physics Process"
-	b.statement = "func _physics_process(delta):"
-	b.tooltip_text = 'The following will be executed during the "physics" processing step of the main loop'
-	b.category = "Lifecycle"
-	block_list.append(b)
-
-	b = BLOCKS["statement_block"].instantiate()
-	b.block_name = "queue_free"
-	b.block_format = "Queue Free"
-	b.statement = "queue_free()"
-	b.tooltip_text = "Queues this node to be deleted at the end of the current frame"
-	b.category = "Lifecycle"
-	block_list.append(b)
-
-#endregion
-#region Loops
-
-	b = BLOCKS["control_block"].instantiate()
-	b.block_name = "for_loop"
-	b.block_formats = ["repeat {number: INT}"]
-	b.statements = ["for __i in {number}:"]
-	b.category = "Loops"
-	b.tooltip_text = "Run the connected blocks [i]number[/i] times"
-	block_list.append(b)
-
-	b = BLOCKS["control_block"].instantiate()
-	b.block_name = "while_loop"
-	b.block_formats = ["while {condition: BOOL}"]
-	b.statements = ["while {condition}:"]
-	b.category = "Loops"
-	b.tooltip_text = (
-		"""
-	Run the connected blocks as long as [i]condition[/i] is true.
-
-	Hint: snap a [b]Comparison[/b] block into the condition.
-	"""
-		. dedent()
-	)
-	block_list.append(b)
-
-	b = BLOCKS["statement_block"].instantiate()
-	b.block_name = "await_scene_ready"
-	b.block_format = "Await scene ready"
-	b.statement = (
-		"""
-		if not get_tree().root.is_node_ready():
-			await get_tree().root.ready
-		"""
-		. dedent()
-	)
-	b.category = "Loops"
-	block_list.append(b)
-
-	b = BLOCKS["statement_block"].instantiate()
-	b.block_name = "break"
-	b.block_format = "Break"
-	b.statement = "break"
-	b.category = "Loops"
-	block_list.append(b)
-
-	b = BLOCKS["statement_block"].instantiate()
-	b.block_name = "continue"
-	b.block_format = "Continue"
-	b.statement = "continue"
-	b.category = "Loops"
-	block_list.append(b)
-
-#endregion
-#region Logs
-
-	b = BLOCKS["statement_block"].instantiate()
-	b.block_name = "print"
-	b.block_format = "print {text: STRING}"
-	b.statement = "print({text})"
-	b.defaults = {"text": "Hello"}
-	b.tooltip_text = "Print the text to output"
-	b.category = "Log"
-	block_list.append(b)
-
-#endregion
-#region Communication
-
-	b = BLOCKS["entry_block"].instantiate()
-	b.block_name = "define_method"
-	# HACK: make signals work with new entry nodes. NIL instead of STRING type allows
-	# plain text input for function name. Should revamp signals later
-	b.block_format = "Define method {method_name: NIL}"
-	b.statement = "func {method_name}():"
-	b.category = "Communication | Methods"
-	b.tooltip_text = "Define a method/function with following statements"
-	block_list.append(b)
-
-	b = BLOCKS["statement_block"].instantiate()
-	b.block_name = "call_group_method"
-	b.block_format = "Call method {method_name: STRING} in group {group: STRING}"
-	b.statement = "get_tree().call_group({group}, {method_name})"
-	b.category = "Communication | Methods"
-	b.tooltip_text = "Calls the method/function on each member of the given group"
-	block_list.append(b)
-
-	b = BLOCKS["statement_block"].instantiate()
-	b.block_name = "call_node_method"
-	b.block_format = "Call method {method_name: STRING} in node {node_path: NODE_PATH}"
-	b.statement = (
-		"""
-		var node = get_node({node_path})
-		if node:
-			node.call({method_name})
-		"""
-		. dedent()
-	)
-	b.tooltip_text = "Calls the method/function of the given node"
-	b.category = "Communication | Methods"
-	block_list.append(b)
-
-	b = BLOCKS["statement_block"].instantiate()
-	b.block_name = "add_to_group"
-	b.block_format = "Add to group {group: STRING}"
-	b.statement = "add_to_group({group})"
-	b.category = "Communication | Groups"
-	b.tooltip_text = "Add this node into the group"
-	block_list.append(b)
-
-	b = BLOCKS["statement_block"].instantiate()
-	b.block_name = "add_node_to_group"
-	b.block_format = "Add {node: NODE_PATH} to group {group: STRING}"
-	b.statement = "get_node({node}).add_to_group({group})"
-	b.category = "Communication | Groups"
-	b.tooltip_text = "Add the node into the group"
-	block_list.append(b)
-
-	b = BLOCKS["statement_block"].instantiate()
-	b.block_name = "remove_from_group"
-	b.block_format = "Remove from group {group: STRING}"
-	b.statement = "remove_from_group({group})"
-	b.tooltip_text = "Remove this node from the group"
-	b.category = "Communication | Groups"
-	block_list.append(b)
-
-	b = BLOCKS["statement_block"].instantiate()
-	b.block_name = "remove_node_from_group"
-	b.block_format = "Remove {node: NODE_PATH} from group {group: STRING}"
-	b.statement = "get_node({node}).remove_from_group({group})"
-	b.tooltip_text = "Remove the node from the group"
-	b.category = "Communication | Groups"
-	block_list.append(b)
-
-	b = BLOCKS["parameter_block"].instantiate()
-	b.block_name = "is_in_group"
-	b.variant_type = TYPE_BOOL
-	b.block_format = "Is in group {group: STRING}"
-	b.statement = "is_in_group({group})"
-	b.tooltip_text = "Is this node in the group"
-	b.category = "Communication | Groups"
-	block_list.append(b)
-
-	b = BLOCKS["parameter_block"].instantiate()
-	b.block_name = "is_node_in_group"
-	b.variant_type = TYPE_BOOL
-	b.block_format = "Is {node: NODE_PATH} in group {group: STRING}"
-	b.statement = "get_node({node}).is_in_group({group})"
-	b.tooltip_text = "Is the node in the group"
-	b.category = "Communication | Groups"
-	block_list.append(b)
-
-#endregion
-#region Variables
-
-	b = BLOCKS["parameter_block"].instantiate()
-	b.block_name = "vector2"
-	b.variant_type = TYPE_VECTOR2
-	b.block_format = "Vector2 x: {x: FLOAT} y: {y: FLOAT}"
-	b.statement = "Vector2({x}, {y})"
-	b.category = "Variables"
-	block_list.append(b)
-
-#endregion
-#region Math
-
-	b = BLOCKS["parameter_block"].instantiate()
-	b.block_name = "add_int"
-	b.variant_type = TYPE_INT
-	b.block_format = "{a: INT} + {b: INT}"
-	b.statement = "({a} + {b})"
-	b.category = "Math"
-	block_list.append(b)
-
-	b = BLOCKS["parameter_block"].instantiate()
-	b.block_name = "subtract_int"
-	b.variant_type = TYPE_INT
-	b.block_format = "{a: INT} - {b: INT}"
-	b.statement = "({a} - {b})"
-	b.category = "Math"
-	block_list.append(b)
-
-	b = BLOCKS["parameter_block"].instantiate()
-	b.block_name = "multiply_int"
-	b.variant_type = TYPE_INT
-	b.block_format = "{a: INT} * {b: INT}"
-	b.statement = "({a} * {b})"
-	b.category = "Math"
-	block_list.append(b)
-
-	b = BLOCKS["parameter_block"].instantiate()
-	b.block_name = "divide_int"
-	b.variant_type = TYPE_INT
-	b.block_format = "{a: INT} / {b: INT}"
-	b.statement = "({a} / {b})"
-	b.category = "Math"
-	block_list.append(b)
-
-	b = BLOCKS["parameter_block"].instantiate()
-	b.block_name = "pow_int"
-	b.variant_type = TYPE_INT
-	b.block_format = "{base: INT} ^ {exp: INT}"
-	b.statement = "(pow({base}, {exp}))"
-	b.category = "Math"
-	block_list.append(b)
-
-#endregion
-#region Logic
-
-	b = BLOCKS["control_block"].instantiate()
-	b.block_name = "if"
-	b.block_formats = ["if    {condition: BOOL}"]
-	b.statements = ["if {condition}:"]
-	b.category = "Logic | Conditionals"
-	block_list.append(b)
-
-	b = BLOCKS["control_block"].instantiate()
-	b.block_name = "if_else"
-	b.block_formats = ["if    {condition: BOOL}", "else"]
-	b.statements = ["if {condition}:", "else:"]
-	b.category = "Logic | Conditionals"
-	block_list.append(b)
-
-	b = BLOCKS["parameter_block"].instantiate()
-	b.block_name = "compare_int"
-	b.variant_type = TYPE_BOOL
-	b.block_format = "{int1: INT} {op: OPTION} {int2: INT}"
-	b.statement = "({int1} {op} {int2})"
-	b.defaults = {"op": OptionData.new(["==", ">", "<", ">=", "<=", "!="])}
-	b.category = "Logic | Comparison"
-	block_list.append(b)
-
-	for op in ["and", "or"]:
-		b = BLOCKS["parameter_block"].instantiate()
-		b.block_name = op
-		b.variant_type = TYPE_BOOL
-		b.block_format = "{bool1: BOOL} %s {bool2: BOOL}" % op
-		b.statement = "({bool1} %s {bool2})" % op
-		b.category = "Logic | Boolean"
+	for block_name in block_resource_dictionary:
+		b = construct_block_from_name(block_name)
 		block_list.append(b)
-
-	b = BLOCKS["parameter_block"].instantiate()
-	b.block_name = "not"
-	b.variant_type = TYPE_BOOL
-	b.block_format = "Not {bool: BOOL}"
-	b.statement = "(not {bool})"
-	b.category = "Logic | Boolean"
-	block_list.append(b)
-
-#endregion
-#region Input
-
-	block_list.append_array(_get_input_blocks())
-
-#endregion
-#region Sounds
-	b = BLOCKS["statement_block"].instantiate()
-	b.block_name = "load_sound"
-	b.block_type = Types.BlockType.EXECUTE
-	b.block_format = "Load file {file_path: STRING} as sound {name: STRING}"
-	b.statement = (
-		"""
-		var __sound = AudioStreamPlayer.new()
-		__sound.name = {name}
-		__sound.set_stream(load({file_path}))
-		add_child(__sound)
-		"""
-		. dedent()
-	)
-	b.tooltip_text = "Load a resource file as the audio stream"
-	b.category = "Sounds"
-	block_list.append(b)
-
-	b = BLOCKS["statement_block"].instantiate()
-	b.block_name = "play_sound"
-	b.block_type = Types.BlockType.EXECUTE
-	b.block_format = "Play the sound {name: STRING} with Volume dB {db: FLOAT} and Pitch Scale {pitch: FLOAT}"
-	b.statement = (
-		"""
-		var __sound_node = get_node({name})
-		__sound_node.volume_db = {db}
-		__sound_node.pitch_scale = {pitch}
-		__sound_node.play()
-		"""
-		. dedent()
-	)
-	b.defaults = {"db": "0.0", "pitch": "1.0"}
-	b.tooltip_text = "Play the audio stream with volume and pitch"
-	b.category = "Sounds"
-	block_list.append(b)
-#endregion
-#region Graphics
-
-	b = BLOCKS["parameter_block"].instantiate()
-	b.block_name = "viewport_width"
-	b.variant_type = TYPE_FLOAT
-	b.block_format = "Viewport Width"
-	b.statement = "(func (): var transform: Transform2D = get_viewport_transform(); var scale: Vector2 = transform.get_scale(); return -transform.origin.x / scale.x + get_viewport_rect().size.x / scale.x).call()"
-	b.category = "Graphics | Viewport"
-	block_list.append(b)
-
-	b = BLOCKS["parameter_block"].instantiate()
-	b.block_name = "viewport_height"
-	b.variant_type = TYPE_FLOAT
-	b.block_format = "Viewport Height"
-	b.statement = "(func (): var transform: Transform2D = get_viewport_transform(); var scale: Vector2 = transform.get_scale(); return -transform.origin.y / scale.y + get_viewport_rect().size.y / scale.y).call()"
-	b.category = "Graphics | Viewport"
-	block_list.append(b)
-
-	b = BLOCKS["parameter_block"].instantiate()
-	b.block_name = "viewport_center"
-	b.variant_type = TYPE_VECTOR2
-	b.block_format = "Viewport Center"
-	b.statement = "(func (): var transform: Transform2D = get_viewport_transform(); var scale: Vector2 = transform.get_scale(); return -transform.origin / scale + get_viewport_rect().size / scale / 2).call()"
-	b.category = "Graphics | Viewport"
-	block_list.append(b)
-
-#endregion
 
 	return block_list
 
@@ -588,174 +297,174 @@ static func get_built_in_blocks(_class_name: String) -> Array[Block]:
 	var props: Dictionary = {}
 	var block_list: Array[Block] = []
 
-	match _class_name:
-		"Node2D":
-			var b = BLOCKS["statement_block"].instantiate()
-			b.block_name = "node2d_rotation"
-			b.block_format = "Set Rotation Degrees {angle: FLOAT}"
-			b.statement = "rotation_degrees = {angle}"
-			b.category = "Transform | Rotation"
-			block_list.append(b)
-
-			props = {
-				"position": "Transform | Position",
-				"rotation": "Transform | Rotation",
-				"scale": "Transform | Scale",
-			}
-
-		"CanvasItem":
-			props = {
-				"modulate": "Graphics | Modulate",
-				"visible": "Graphics | Visibility",
-			}
-
-		"RigidBody2D":
-			for verb in ["entered", "exited"]:
-				var b = BLOCKS["entry_block"].instantiate()
-				b.block_name = "rigidbody2d_on_%s" % verb
-				b.block_format = "On [body: NODE_PATH] %s" % [verb]
-				# HACK: Blocks refer to nodes by path but the callback receives the node itself;
-				# convert to path
-				b.statement = (
-					(
-						"""
-						func _on_body_%s(_body: Node):
-							var body: NodePath = _body.get_path()
-						"""
-						. dedent()
-					)
-					% [verb]
-				)
-				b.signal_name = "body_%s" % [verb]
-				b.category = "Communication | Methods"
-				block_list.append(b)
-
-			var b = BLOCKS["statement_block"].instantiate()
-			b.block_name = "rigidbody2d_physics_position"
-			b.block_format = "Set Physics Position {position: VECTOR2}"
-			b.statement = (
-				"""
-				PhysicsServer2D.body_set_state(
-					get_rid(),
-					PhysicsServer2D.BODY_STATE_TRANSFORM,
-					Transform2D.IDENTITY.translated({position})
-				)
-				"""
-				. dedent()
-			)
-			b.category = "Transform | Position"
-			block_list.append(b)
-
-			props = {
-				"mass": "Physics | Mass",
-				"linear_velocity": "Physics | Velocity",
-				"angular_velocity": "Physics | Velocity",
-			}
-
-		"AnimationPlayer":
-			var b = BLOCKS["statement_block"].instantiate()
-			b.block_name = "animationplayer_play"
-			b.block_format = "Play {animation: STRING} {direction: OPTION}"
-			b.statement = (
-				"""
-				if "{direction}" == "ahead":
-					play({animation})
-				else:
-					play_backwards({animation})
-				"""
-				. dedent()
-			)
-			b.defaults = {
-				"direction": OptionData.new(["ahead", "backwards"]),
-			}
-			b.tooltip_text = "Play the animation."
-			b.category = "Graphics | Animation"
-			block_list.append(b)
-
-			b = BLOCKS["statement_block"].instantiate()
-			b.block_name = "animationplayer_pause"
-			b.block_format = "Pause"
-			b.statement = "pause()"
-			b.tooltip_text = "Pause the currently playing animation."
-			b.category = "Graphics | Animation"
-			block_list.append(b)
-
-			b = BLOCKS["statement_block"].instantiate()
-			b.block_name = "animationplayer_stop"
-			b.block_format = "Stop"
-			b.statement = "stop()"
-			b.tooltip_text = "Stop the currently playing animation."
-			b.category = "Graphics | Animation"
-			block_list.append(b)
-
-			b = BLOCKS["parameter_block"].instantiate()
-			b.block_name = "animationplayer_is_playing"
-			b.variant_type = TYPE_BOOL
-			b.block_format = "Is playing"
-			b.statement = "is_playing()"
-			b.tooltip_text = "Check if an animation is currently playing."
-			b.category = "Graphics | Animation"
-			block_list.append(b)
-
-		"Area2D":
-			for verb in ["entered", "exited"]:
-				var b = BLOCKS["entry_block"].instantiate()
-				b.block_name = "area2d_on_%s" % verb
-				b.block_format = "On [body: NODE_PATH] %s" % [verb]
-				# HACK: Blocks refer to nodes by path but the callback receives the node itself;
-				# convert to path
-				b.statement = (
-					(
-						"""
-						func _on_body_%s(_body: Node2D):
-							var body: NodePath = _body.get_path()
-						"""
-						. dedent()
-					)
-					% [verb]
-				)
-				b.signal_name = "body_%s" % [verb]
-				b.category = "Communication | Methods"
-				block_list.append(b)
-
-		"CharacterBody2D":
-			var b = BLOCKS["statement_block"].instantiate()
-			b.block_name = "characterbody2d_move"
-			b.block_type = Types.BlockType.EXECUTE
-			b.block_format = "Move with keys {up: STRING} {down: STRING} {left: STRING} {right: STRING} with speed {speed: VECTOR2}"
-			b.statement = (
-				"var dir = Vector2()\n"
-				+ "dir.x += float(Input.is_key_pressed(OS.find_keycode_from_string({right})))\n"
-				+ "dir.x -= float(Input.is_key_pressed(OS.find_keycode_from_string({left})))\n"
-				+ "dir.y += float(Input.is_key_pressed(OS.find_keycode_from_string({down})))\n"
-				+ "dir.y -= float(Input.is_key_pressed(OS.find_keycode_from_string({up})))\n"
-				+ "dir = dir.normalized()\n"
-				+ "velocity = dir*{speed}\n"
-				+ "move_and_slide()"
-			)
-			b.defaults = {
-				"up": "W",
-				"down": "S",
-				"left": "A",
-				"right": "D",
-			}
-			b.category = "Input"
-			block_list.append(b)
-
-			b = BLOCKS["statement_block"].instantiate()
-			b.block_name = "characterbody2d_move_and_slide"
-			b.block_type = Types.BlockType.EXECUTE
-			b.block_format = "Move and slide"
-			b.statement = "move_and_slide()"
-			b.category = "Physics | Velocity"
-			block_list.append(b)
-
-			props = {
-				"velocity": "Physics | Velocity",
-			}
-
-	var prop_list = ClassDB.class_get_property_list(_class_name, true)
-	block_list.append_array(blocks_from_property_list(prop_list, props))
+	#match _class_name:
+	#"Node2D":
+	#var b = BLOCKS["statement_block"].instantiate()
+	#b.block_name = "node2d_rotation"
+	#b.block_format = "Set Rotation Degrees {angle: FLOAT}"
+	#b.statement = "rotation_degrees = {angle}"
+	#b.category = "Transform | Rotation"
+	#block_list.append(b)
+#
+	#props = {
+	#"position": "Transform | Position",
+	#"rotation": "Transform | Rotation",
+	#"scale": "Transform | Scale",
+	#}
+#
+	#"CanvasItem":
+	#props = {
+	#"modulate": "Graphics | Modulate",
+	#"visible": "Graphics | Visibility",
+	#}
+#
+	#"RigidBody2D":
+	#for verb in ["entered", "exited"]:
+	#var b = BLOCKS["entry_block"].instantiate()
+	#b.block_name = "rigidbody2d_on_%s" % verb
+	#b.block_format = "On [body: NODE_PATH] %s" % [verb]
+	## HACK: Blocks refer to nodes by path but the callback receives the node itself;
+	## convert to path
+	#b.statement = (
+	#(
+	#"""
+	#func _on_body_%s(_body: Node):
+	#var body: NodePath = _body.get_path()
+	#"""
+	#. dedent()
+	#)
+	#% [verb]
+	#)
+	#b.signal_name = "body_%s" % [verb]
+	#b.category = "Communication | Methods"
+	#block_list.append(b)
+#
+	#var b = BLOCKS["statement_block"].instantiate()
+	#b.block_name = "rigidbody2d_physics_position"
+	#b.block_format = "Set Physics Position {position: VECTOR2}"
+	#b.statement = (
+	#"""
+	#PhysicsServer2D.body_set_state(
+	#get_rid(),
+	#PhysicsServer2D.BODY_STATE_TRANSFORM,
+	#Transform2D.IDENTITY.translated({position})
+	#)
+	#"""
+	#. dedent()
+	#)
+	#b.category = "Transform | Position"
+	#block_list.append(b)
+#
+	#props = {
+	#"mass": "Physics | Mass",
+	#"linear_velocity": "Physics | Velocity",
+	#"angular_velocity": "Physics | Velocity",
+	#}
+#
+	#"AnimationPlayer":
+	#var b = BLOCKS["statement_block"].instantiate()
+	#b.block_name = "animationplayer_play"
+	#b.block_format = "Play {animation: STRING} {direction: OPTION}"
+	#b.statement = (
+	#"""
+	#if "{direction}" == "ahead":
+	#play({animation})
+	#else:
+	#play_backwards({animation})
+	#"""
+	#. dedent()
+	#)
+	#b.defaults = {
+	#"direction": OptionData.new(["ahead", "backwards"]),
+	#}
+	#b.tooltip_text = "Play the animation."
+	#b.category = "Graphics | Animation"
+	#block_list.append(b)
+#
+	#b = BLOCKS["statement_block"].instantiate()
+	#b.block_name = "animationplayer_pause"
+	#b.block_format = "Pause"
+	#b.statement = "pause()"
+	#b.tooltip_text = "Pause the currently playing animation."
+	#b.category = "Graphics | Animation"
+	#block_list.append(b)
+#
+	#b = BLOCKS["statement_block"].instantiate()
+	#b.block_name = "animationplayer_stop"
+	#b.block_format = "Stop"
+	#b.statement = "stop()"
+	#b.tooltip_text = "Stop the currently playing animation."
+	#b.category = "Graphics | Animation"
+	#block_list.append(b)
+#
+	#b = BLOCKS["parameter_block"].instantiate()
+	#b.block_name = "animationplayer_is_playing"
+	#b.variant_type = TYPE_BOOL
+	#b.block_format = "Is playing"
+	#b.statement = "is_playing()"
+	#b.tooltip_text = "Check if an animation is currently playing."
+	#b.category = "Graphics | Animation"
+	#block_list.append(b)
+#
+	#"Area2D":
+	#for verb in ["entered", "exited"]:
+	#var b = BLOCKS["entry_block"].instantiate()
+	#b.block_name = "area2d_on_%s" % verb
+	#b.block_format = "On [body: NODE_PATH] %s" % [verb]
+	## HACK: Blocks refer to nodes by path but the callback receives the node itself;
+	## convert to path
+	#b.statement = (
+	#(
+	#"""
+	#func _on_body_%s(_body: Node2D):
+	#var body: NodePath = _body.get_path()
+	#"""
+	#. dedent()
+	#)
+	#% [verb]
+	#)
+	#b.signal_name = "body_%s" % [verb]
+	#b.category = "Communication | Methods"
+	#block_list.append(b)
+#
+	#"CharacterBody2D":
+	#var b = BLOCKS["statement_block"].instantiate()
+	#b.block_name = "characterbody2d_move"
+	#b.block_type = Types.BlockType.EXECUTE
+	#b.block_format = "Move with keys {up: STRING} {down: STRING} {left: STRING} {right: STRING} with speed {speed: VECTOR2}"
+	#b.statement = (
+	#"var dir = Vector2()\n"
+	#+ "dir.x += float(Input.is_key_pressed(OS.find_keycode_from_string({right})))\n"
+	#+ "dir.x -= float(Input.is_key_pressed(OS.find_keycode_from_string({left})))\n"
+	#+ "dir.y += float(Input.is_key_pressed(OS.find_keycode_from_string({down})))\n"
+	#+ "dir.y -= float(Input.is_key_pressed(OS.find_keycode_from_string({up})))\n"
+	#+ "dir = dir.normalized()\n"
+	#+ "velocity = dir*{speed}\n"
+	#+ "move_and_slide()"
+	#)
+	#b.defaults = {
+	#"up": "W",
+	#"down": "S",
+	#"left": "A",
+	#"right": "D",
+	#}
+	#b.category = "Input"
+	#block_list.append(b)
+#
+	#b = BLOCKS["statement_block"].instantiate()
+	#b.block_name = "characterbody2d_move_and_slide"
+	#b.block_type = Types.BlockType.EXECUTE
+	#b.block_format = "Move and slide"
+	#b.statement = "move_and_slide()"
+	#b.category = "Physics | Velocity"
+	#block_list.append(b)
+#
+	#props = {
+	#"velocity": "Physics | Velocity",
+	#}
+#
+	#var prop_list = ClassDB.class_get_property_list(_class_name, true)
+	#block_list.append_array(blocks_from_property_list(prop_list, props))
 
 	return block_list
 

@@ -1,10 +1,28 @@
-[gd_resource type="Resource" script_class="BlockScriptData" load_steps=3 format=3 uid="uid://dit7fykhl3h48"]
+[gd_resource type="Resource" script_class="BlockScriptData" load_steps=7 format=3 uid="uid://dit7fykhl3h48"]
 
+[ext_resource type="Script" path="res://addons/block_code/serialization/block_name_tree_node.gd" id="1_ftkob"]
 [ext_resource type="Script" path="res://addons/block_code/block_script_data/block_script_data.gd" id="1_h8ggn"]
-[ext_resource type="Resource" uid="uid://djn5nejdsfu2a" path="res://addons/block_code/ui/bsd_templates/default_blocktrees.tres" id="1_y70fv"]
+[ext_resource type="Script" path="res://addons/block_code/serialization/block_name_tree.gd" id="2_1vbqr"]
+
+[sub_resource type="Resource" id="Resource_wesxh"]
+script = ExtResource("1_ftkob")
+block_name = "print"
+children = Array[ExtResource("1_ftkob")]([])
+
+[sub_resource type="Resource" id="Resource_3sxxb"]
+script = ExtResource("1_ftkob")
+block_name = "ready"
+children = Array[ExtResource("1_ftkob")]([SubResource("Resource_wesxh")])
+
+[sub_resource type="Resource" id="Resource_l5bmn"]
+script = ExtResource("2_1vbqr")
+root = SubResource("Resource_3sxxb")
+canvas_position = Vector2(10, 10)
 
 [resource]
 script = ExtResource("1_h8ggn")
 script_inherits = "INHERIT_DEFAULT"
-block_trees = ExtResource("1_y70fv")
+block_name_trees = Array[ExtResource("2_1vbqr")]([SubResource("Resource_l5bmn")])
+variables = Array[Resource("res://addons/block_code/ui/block_canvas/variable_resource.gd")]([])
 generated_script = "extends INHERIT_DEFAULT"
+version = 0

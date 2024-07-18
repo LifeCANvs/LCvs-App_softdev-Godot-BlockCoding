@@ -21,7 +21,10 @@ signal modified
 @export var category: String
 
 ## The next block in the line of execution (can be null if end)
-@export var bottom_snap: SnapPoint
+@export var bottom_snap: SnapPoint = null
+
+## Snap point that holds blocks that should be nested under this block
+@export var child_snap: SnapPoint = null
 
 ## The scope of the block (statement of matching entry block)
 @export var scope: String = ""

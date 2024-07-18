@@ -12,6 +12,8 @@ script = ExtResource("1_6wvlf")
 block_name = "statement_block"
 label = "StatementBlock"
 bottom_snap = NodePath("VBoxContainer/SnapPoint")
+scope = Array[Resource("res://addons/block_code/ui/blocks/utilities/snap_point/snap_point.gd")]([])
+resource = ""
 
 [node name="VBoxContainer" type="VBoxContainer" parent="."]
 layout_mode = 2
